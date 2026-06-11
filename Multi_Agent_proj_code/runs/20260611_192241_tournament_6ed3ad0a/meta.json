@@ -1,0 +1,16 @@
+{
+  "run_id": "6ed3ad0a",
+  "experiment_type": "tournament",
+  "started_at": "2026-06-11T19:22:41",
+  "config": {
+    "attackers": [
+      "template_random",
+      "template_dan",
+      "template_roleplay",
+      "template_hypothetical"
+    ],
+    "defenders": [
+      "keyword_baseline"
+    ]
+  }
+}

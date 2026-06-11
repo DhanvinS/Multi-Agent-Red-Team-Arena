@@ -8,15 +8,9 @@ venv/
 # Secrets
 .env
 
-# Generated data
-Multi_Agent_proj_code/data/arena.db
+# DB write-ahead log temp files only (not the DB itself)
 *.db-wal
 *.db-shm
-
-# Per-run artifact folders (logs + charts) — keep the dir + its README, ignore runs
-Multi_Agent_proj_code/runs/*
-!Multi_Agent_proj_code/runs/.gitkeep
-!Multi_Agent_proj_code/runs/README.md
 
 # Tooling
 .pytest_cache/

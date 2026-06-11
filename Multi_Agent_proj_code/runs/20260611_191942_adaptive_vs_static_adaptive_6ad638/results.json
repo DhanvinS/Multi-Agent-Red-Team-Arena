@@ -1,0 +1,35 @@
+{
+  "run_id": "adaptive_6ad638",
+  "static": {
+    "run_id": "adaptive_6ad638_static",
+    "episodes": 12,
+    "success_rate": 0.5,
+    "elo_snapshots": []
+  },
+  "adaptive": {
+    "run_id": "adaptive_6ad638_adaptive",
+    "episodes": 12,
+    "total_turns": 31,
+    "success_rate": 0.667,
+    "per_attempt_success_rate": 0.258,
+    "avg_turns_to_success": 1.38,
+    "turns_to_success_dist": [
+      1,
+      1,
+      4,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "elo_snapshots": []
+  },
+  "comparison": {
+    "success_rate_improvement": 0.167,
+    "z_statistic": 0.828,
+    "p_value": 0.4076,
+    "significant_at_05": false,
+    "adaptive_advantage": false
+  }
+}
