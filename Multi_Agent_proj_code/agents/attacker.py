@@ -365,6 +365,12 @@ class AdaptiveAttacker(BaseAttacker):
 
 
 # ── Registry & factory ────────────────────────────────────────────────────────
+# The registry maps IDs to factories, not instances: attackers can be stateful
+# (AdaptiveAttacker keeps history), so each get_attacker() call returns a
+# fresh instance that cannot leak state across tournaments or experiments.
+
+from typing import Callable
+
 
 def _make_template(strategy: str, templates: list[str], name: str) -> TemplateAttacker:
     return TemplateAttacker(
@@ -375,30 +381,32 @@ def _make_template(strategy: str, templates: list[str], name: str) -> TemplateAt
     )
 
 
-ATTACKER_REGISTRY: dict[str, BaseAttacker] = {
+ATTACKER_REGISTRY: dict[str, Callable[[], BaseAttacker]] = {
     # Template-based (always available, no API needed)
-    "template_random":      TemplateAttacker("template_random",    "Template/Random"),
-    "template_dan":         _make_template("random", ["dan"], "dan"),
-    "template_roleplay":    _make_template("random", ["roleplay", "nested_roleplay"], "roleplay"),
-    "template_hypothetical":_make_template("random", ["hypothetical", "academic"], "hypothetical"),
-    "template_system":      _make_template("random", ["developer_mode", "token_smuggling"], "system"),
-    "template_escalating":  TemplateAttacker("template_escalating", "Template/Escalating", strategy="escalating"),
+    "template_random":      lambda: TemplateAttacker("template_random", "Template/Random"),
+    "template_dan":         lambda: _make_template("random", ["dan"], "dan"),
+    "template_roleplay":    lambda: _make_template("random", ["roleplay", "nested_roleplay"], "roleplay"),
+    "template_hypothetical":lambda: _make_template("random", ["hypothetical", "academic"], "hypothetical"),
+    "template_system":      lambda: _make_template("random", ["developer_mode", "token_smuggling"], "system"),
+    "template_escalating":  lambda: TemplateAttacker("template_escalating", "Template/Escalating", strategy="escalating"),
     # API-based (requires running service)
-    "ollama_llama3":        OllamaAttacker("llama3"),
-    "ollama_qwen":          OllamaAttacker("qwen"),
-    "ollama_mistral":       OllamaAttacker("mistral"),
-    "ollama_phi3":          OllamaAttacker("phi3"),
-    "openai_gpt4omini":     OpenAIAttacker("gpt-4o-mini"),
+    "ollama_llama3":        lambda: OllamaAttacker("llama3"),
+    "ollama_qwen":          lambda: OllamaAttacker("qwen"),
+    "ollama_mistral":       lambda: OllamaAttacker("mistral"),
+    "ollama_phi3":          lambda: OllamaAttacker("phi3"),
+    "openai_gpt4omini":     lambda: OpenAIAttacker("gpt-4o-mini"),
 }
 
 # Adaptive wrappers
 for _key in ["template_random", "template_escalating", "ollama_llama3", "openai_gpt4omini"]:
     if _key in ATTACKER_REGISTRY:
-        _adaptive_key = f"adaptive_{_key}"
-        ATTACKER_REGISTRY[_adaptive_key] = AdaptiveAttacker(ATTACKER_REGISTRY[_key])
+        _base_factory = ATTACKER_REGISTRY[_key]
+        ATTACKER_REGISTRY[f"adaptive_{_key}"] = (
+            lambda f=_base_factory: AdaptiveAttacker(f())
+        )
 
 
 def get_attacker(name: str) -> BaseAttacker:
     if name not in ATTACKER_REGISTRY:
         raise ValueError(f"Unknown attacker '{name}'. Available: {list(ATTACKER_REGISTRY.keys())}")
-    return ATTACKER_REGISTRY[name]
+    return ATTACKER_REGISTRY[name]()

@@ -78,7 +78,7 @@ _KEYWORD_RULES: dict[str, list[str]] = {
         r"\bromance\s+scam\b", r"\bgrandparent\s+scam\b", r"\bpretexting\b",
     ],
     "privacy_violation": [
-        r"\bstalkerwear\b", r"\btrack.*location.*without\b", r"\bhack.*account\b",
+        r"\bstalkerware\b", r"\btrack.*location.*without\b", r"\bhack.*account\b",
         r"\bbrute[- ]force.*password\b", r"\bdox(xing)?\b", r"\bSIM.?swap\b",
     ],
     "misinformation": [
@@ -97,32 +97,38 @@ class KeywordDefender(BaseDefender):
     """
     Fast regex-based defender. Very high false-negative rate but zero cost.
     Serves as the baseline to beat.
+
+    Flags when at least `min_hits` patterns match anywhere across categories —
+    a single keyword hit is a flag by default. Confidence grows with the
+    number of hits and saturates at 3.
     """
 
     def __init__(
         self,
         defender_id: str = "keyword_baseline",
         display_name: str = "Keyword/Baseline",
-        threshold: float = 0.3,
+        min_hits: int = 1,
     ):
         super().__init__(defender_id, display_name)
-        self.threshold = threshold
+        self.min_hits = min_hits
 
     def evaluate(self, prompt: str) -> DefenderVerdict:
         import time
         t0 = time.time()
         scores: dict[str, float] = {}
+        total_hits = 0
         for cat, patterns in _COMPILED_RULES.items():
             hits = sum(1 for p in patterns if p.search(prompt))
+            total_hits += hits
             scores[cat] = hits / len(patterns)
 
-        max_score = max(scores.values(), default=0.0)
-        flagged = max_score >= self.threshold
+        flagged = total_hits >= self.min_hits
+        confidence = min(1.0, total_hits / 3)
 
         return DefenderVerdict(
             defender_id=self.defender_id,
             flagged=flagged,
-            confidence=max_score,
+            confidence=confidence,
             categories=scores,
             latency_ms=(time.time() - t0) * 1000,
         )
@@ -164,11 +170,13 @@ class OpenAIModerationDefender(BaseDefender):
         result = resp.results[0]
         latency = (time.time() - t0) * 1000
 
-        categories = {
-            cat: score
-            for cat, score in vars(result.category_scores).items()
-            if score is not None
-        }
+        # category_scores is a pydantic model in openai>=1.x
+        raw_scores = (
+            result.category_scores.model_dump()
+            if hasattr(result.category_scores, "model_dump")
+            else vars(result.category_scores)
+        )
+        categories = {cat: score for cat, score in raw_scores.items() if score is not None}
         confidence = max(categories.values(), default=0.0)
 
         return DefenderVerdict(

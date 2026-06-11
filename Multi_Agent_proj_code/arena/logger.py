@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS rounds (
     judge_harm_category     TEXT    NOT NULL,
     judge_reasoning         TEXT    NOT NULL,
     judge_confidence        REAL    NOT NULL,
+    judge_mode              TEXT    DEFAULT 'llm',
     judge_latency_ms        REAL    DEFAULT 0,
     attacker_elo_before REAL    DEFAULT 0,
     attacker_elo_after  REAL    DEFAULT 0,
@@ -107,6 +108,11 @@ class ArenaLogger:
     def _init_db(self):
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            # Migration: judge_mode was added after the original schema;
+            # CREATE TABLE IF NOT EXISTS won't add it to existing databases.
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(rounds)")}
+            if "judge_mode" not in cols:
+                conn.execute("ALTER TABLE rounds ADD COLUMN judge_mode TEXT DEFAULT 'llm'")
 
     # ── Writes ────────────────────────────────────────────────────────────────
 
@@ -121,7 +127,8 @@ class ArenaLogger:
                     defender_flagged, defender_confidence, defender_latency_ms,
                     judge_policy_violation, judge_harm_severity,
                     judge_attack_success, judge_defender_correct,
-                    judge_harm_category, judge_reasoning, judge_confidence, judge_latency_ms,
+                    judge_harm_category, judge_reasoning, judge_confidence,
+                    judge_mode, judge_latency_ms,
                     attacker_elo_before, attacker_elo_after,
                     defender_elo_before, defender_elo_after,
                     turn_number, metadata
@@ -133,7 +140,8 @@ class ArenaLogger:
                     :defender_flagged, :defender_confidence, :defender_latency_ms,
                     :judge_policy_violation, :judge_harm_severity,
                     :judge_attack_success, :judge_defender_correct,
-                    :judge_harm_category, :judge_reasoning, :judge_confidence, :judge_latency_ms,
+                    :judge_harm_category, :judge_reasoning, :judge_confidence,
+                    :judge_mode, :judge_latency_ms,
                     :attacker_elo_before, :attacker_elo_after,
                     :defender_elo_before, :defender_elo_after,
                     :turn_number, :metadata
@@ -142,6 +150,7 @@ class ArenaLogger:
                     "experiment_tag":   round_data.get("experiment_tag", ""),
                     "metadata":         json.dumps(round_data.get("metadata", {})),
                     "defender_latency_ms": round_data.get("defender_latency_ms", 0),
+                    "judge_mode":          round_data.get("judge_mode", "llm"),
                     "judge_latency_ms":    round_data.get("judge_latency_ms", 0),
                     "template_used":       round_data.get("template_used", ""),
                     "turn_number":         round_data.get("turn_number", 1),
@@ -197,8 +206,14 @@ class ArenaLogger:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_attack_success_matrix(self, run_id: Optional[str] = None) -> dict:
-        """Return {attacker_id: {defender_id: success_rate}} for heatmap."""
+    def get_attack_success_matrix(
+        self, run_id: Optional[str] = None, include_counts: bool = False
+    ) -> dict:
+        """Return {attacker_id: {defender_id: success_rate}} for heatmap.
+
+        With include_counts=True each cell is {"success_rate": float, "total": int}
+        instead, so callers can compute confidence intervals.
+        """
         where = "WHERE run_id=?" if run_id else ""
         params = [run_id] if run_id else []
         with self._conn() as conn:
@@ -210,9 +225,13 @@ class ArenaLogger:
                     GROUP BY attacker_id, defender_id""",
                 params,
             ).fetchall()
-        matrix: dict[str, dict[str, float]] = {}
+        matrix: dict[str, dict] = {}
         for row in rows:
-            matrix.setdefault(row["attacker_id"], {})[row["defender_id"]] = row["success_rate"]
+            cell = (
+                {"success_rate": row["success_rate"], "total": row["total"]}
+                if include_counts else row["success_rate"]
+            )
+            matrix.setdefault(row["attacker_id"], {})[row["defender_id"]] = cell
         return matrix
 
     def get_category_breakdown(self, run_id: Optional[str] = None) -> list[dict]:

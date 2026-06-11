@@ -30,6 +30,7 @@ BASE_DIR           = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR           = os.path.join(BASE_DIR, "data")
 DB_PATH            = os.path.join(DATA_DIR, "arena.db")
 SEED_PROMPTS_PATH  = os.path.join(DATA_DIR, "seed_prompts.json")
+RUNS_DIR           = os.getenv("RUNS_DIR", os.path.join(BASE_DIR, "runs"))
 
 # ── Harm categories ───────────────────────────────────────────────────────────
 HARM_CATEGORIES = [

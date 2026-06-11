@@ -28,6 +28,7 @@ import config
 from agents.attacker import BaseAttacker, AttackResult
 from agents.defender import BaseDefender, DefenderVerdict
 from agents.judge import JudgeAgent, JudgeVerdict
+from arena.artifacts import RunArtifacts
 from arena.elo import EloSystem
 from arena.logger import ArenaLogger
 
@@ -75,6 +76,7 @@ class RoundResult:
             "judge_harm_category":    self.judgment.harm_category,
             "judge_reasoning":        self.judgment.reasoning,
             "judge_confidence":       self.judgment.confidence,
+            "judge_mode":             self.judgment.judge_mode,
             "judge_latency_ms":       self.judgment.latency_ms,
             "attacker_elo_before": self.attacker_elo_before,
             "attacker_elo_after":  self.attacker_elo_after,
@@ -127,6 +129,8 @@ class ArenaController:
         run_id: Optional[str] = None,
         experiment_tag: str = "",
         verbose: bool = True,
+        artifacts: Optional[RunArtifacts] = None,
+        write_artifacts: bool = False,
     ):
         self.attackers = {a.attacker_id: a for a in attackers}
         self.defenders = {d.defender_id: d for d in defenders}
@@ -138,6 +142,22 @@ class ArenaController:
         self.experiment_tag = experiment_tag
         self.verbose = verbose
         self._round_count = 0
+
+        # Per-run artifact folder. An externally supplied writer is shared and
+        # NOT finalized here (the caller owns it); an auto-created one is owned
+        # and finalized at the end of run_tournament.
+        self.artifacts = artifacts
+        self._owns_artifacts = False
+        if self.artifacts is None and write_artifacts:
+            self.artifacts = RunArtifacts(
+                run_id=self.run_id,
+                experiment_type=experiment_tag or "tournament",
+                run_config={
+                    "attackers": list(self.attackers),
+                    "defenders": list(self.defenders),
+                },
+            )
+            self._owns_artifacts = True
 
         # Register all participants with Elo
         for a in attackers:
@@ -153,7 +173,13 @@ class ArenaController:
         defender: BaseDefender,
         seed: Optional[dict] = None,
         conversation_history: Optional[list] = None,
+        update_elo: bool = True,
     ) -> RoundResult:
+        """Run one attack/defense/judge exchange.
+
+        update_elo=False lets multi-turn experiments score an episode of
+        several turns as a single Elo game instead of one game per turn.
+        """
         self._round_count += 1
 
         if seed is None:
@@ -172,6 +198,7 @@ class ArenaController:
             attack_result.attack_prompt,
             defense_verdict,
             seed["category"],
+            seed_severity=seed.get("severity", 3),
         )
 
         # 4. Elo update
@@ -179,9 +206,12 @@ class ArenaController:
         dfn_elo_before = self.elo.get_defender(defender.defender_id).rating
 
         attacker_won = bool(judge_verdict.attack_success)
-        new_atk_elo, new_dfn_elo = self.elo.update(
-            attacker.attacker_id, defender.defender_id, attacker_won
-        )
+        if update_elo:
+            new_atk_elo, new_dfn_elo = self.elo.update(
+                attacker.attacker_id, defender.defender_id, attacker_won
+            )
+        else:
+            new_atk_elo, new_dfn_elo = atk_elo_before, dfn_elo_before
 
         # 5. Build result
         result = RoundResult(
@@ -199,10 +229,12 @@ class ArenaController:
             defender_elo_after=new_dfn_elo,
         )
 
-        # 6. Log
+        # 6. Log — to SQLite, and stream to the run-artifact folder if active
         log_dict = result.to_log_dict
         log_dict["experiment_tag"] = self.experiment_tag
         self.logger.log_round(log_dict)
+        if self.artifacts is not None:
+            self.artifacts.log_round(log_dict)
 
         return result
 
@@ -258,6 +290,11 @@ class ArenaController:
             for attacker in attacker_list:
                 for defender in defender_list:
                     for i in range(rounds_per_pair):
+                        # Tournament rounds are independent single-turn games:
+                        # adaptive attackers must not carry history across seeds.
+                        reset = getattr(attacker, "reset", None)
+                        if callable(reset):
+                            reset()
                         seed = self.seed_bank.sample(category=category_filter)[0]
                         result = self.run_round(attacker, defender, seed)
                         results.append(result)
@@ -269,8 +306,16 @@ class ArenaController:
                         progress.advance(task)
 
         self.logger.finish_experiment(self.run_id, len(results))
+        self._snapshot_elo()  # final snapshot so the trajectory chart ends at the true rating
         if self.verbose:
             self._print_summary(results)
+
+        # Finalize an auto-created artifact bundle (summary + charts on disk).
+        if self.artifacts is not None and self._owns_artifacts:
+            out_dir = self.artifacts.finalize(logger=self.logger, elo=self.elo,
+                                              run_ids=[self.run_id])
+            if self.verbose:
+                console.print(f"[dim]Artifacts written to[/dim] [cyan]{out_dir}[/cyan]")
 
         return results
 

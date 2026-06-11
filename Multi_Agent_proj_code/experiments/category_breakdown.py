@@ -66,7 +66,7 @@ class CategoryBreakdownExperiment:
         all_rounds = []
 
         for category in seed_bank.categories:
-            console.print(f"  → category: [cyan]{category}[/cyan]")
+            console.print(f"  -> category: [cyan]{category}[/cyan]")
             elo = EloSystem()
             controller = ArenaController(
                 attackers=self.attackers,

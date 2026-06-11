@@ -21,6 +21,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
+import random
 import uuid
 
 from rich.console import Console
@@ -63,6 +64,10 @@ def parse_args():
                         help="Model ID for the judge")
     parser.add_argument("--no-judge", action="store_true",
                         help="Skip LLM judge (use heuristic fallback) — free, no API needed")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducible runs")
+    parser.add_argument("--no-artifacts", action="store_true",
+                        help="Disable per-run artifact folder (logs + HTML charts)")
     parser.add_argument("--list-agents", action="store_true",
                         help="Print available attackers and defenders then exit")
     return parser.parse_args()
@@ -89,16 +94,13 @@ def main():
         console.print("Run with --list-agents to see available options.")
         sys.exit(1)
 
+    if args.seed is not None:
+        random.seed(args.seed)
+
     # Judge setup
     if args.no_judge:
-        console.print("[yellow]Judge disabled — using heuristic fallback[/yellow]")
-        judge = JudgeAgent(provider="openai", model="heuristic")
-        # Monkeypatch to force fallback
-        from agents.judge import JudgeAgent as JA
-        original_score = JA.score
-        def heuristic_score(self, attack_prompt, defender_verdict, seed_category):
-            return self._heuristic_verdict(attack_prompt, defender_verdict, seed_category)
-        JA.score = heuristic_score
+        console.print("[yellow]Judge disabled — using heuristic judge (no API cost)[/yellow]")
+        judge = JudgeAgent(use_llm=False)
     else:
         judge = JudgeAgent(provider=args.judge_provider, model=args.judge_model)
 
@@ -120,6 +122,7 @@ def main():
         logger=ArenaLogger(),
         elo=EloSystem(),
         run_id=run_id,
+        write_artifacts=not args.no_artifacts,
     )
 
     results = controller.run_tournament(

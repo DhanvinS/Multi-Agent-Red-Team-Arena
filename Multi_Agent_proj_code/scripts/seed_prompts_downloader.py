@@ -91,7 +91,7 @@ def download_harmbench(max_prompts: int = 100) -> list[dict]:
                 "text":     text.strip(),
                 "source":   "harmbench",
             })
-        console.print(f"  → {len(prompts)} prompts from HarmBench")
+        console.print(f"  -> {len(prompts)} prompts from HarmBench")
         return prompts
     except Exception as e:
         console.print(f"[yellow]HarmBench download failed: {e}[/yellow]")
@@ -123,7 +123,7 @@ def download_advbench(max_prompts: int = 100) -> list[dict]:
                 "text":     text.strip(),
                 "source":   "advbench",
             })
-        console.print(f"  → {len(prompts)} prompts from AdvBench")
+        console.print(f"  -> {len(prompts)} prompts from AdvBench")
         return prompts
     except Exception as e:
         console.print(f"[yellow]AdvBench download failed: {e}[/yellow]")
@@ -154,7 +154,7 @@ def download_jailbreakbench(max_prompts: int = 100) -> list[dict]:
                 "text":     text.strip(),
                 "source":   "jailbreakbench",
             })
-        console.print(f"  → {len(prompts)} prompts from JailbreakBench")
+        console.print(f"  -> {len(prompts)} prompts from JailbreakBench")
         return prompts
     except Exception as e:
         console.print(f"[yellow]JailbreakBench download failed: {e}[/yellow]")

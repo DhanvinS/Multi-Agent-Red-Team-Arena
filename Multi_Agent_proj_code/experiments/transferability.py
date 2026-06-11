@@ -13,6 +13,7 @@ Output:
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import Optional
 
@@ -93,21 +94,42 @@ class TransferabilityExperiment:
         )
 
         # Compute transferability metrics
-        matrix = self.logger.get_attack_success_matrix(self.run_id)
+        matrix = self.logger.get_attack_success_matrix(self.run_id, include_counts=True)
         self.results = self._compute_transferability(matrix)
         self._print_results()
         return self.results
+
+    @staticmethod
+    def _wilson_interval(rate: float, n: int, z: float = 1.96) -> tuple[float, float]:
+        """95% Wilson score interval for a binomial proportion."""
+        if n == 0:
+            return 0.0, 1.0
+        denom = 1 + z * z / n
+        center = (rate + z * z / (2 * n)) / denom
+        margin = (z / denom) * math.sqrt(rate * (1 - rate) / n + z * z / (4 * n * n))
+        return max(0.0, center - margin), min(1.0, center + margin)
 
     def _compute_transferability(self, matrix: dict) -> dict:
         import statistics
 
         transferability = {}
-        for attacker_id, defender_scores in matrix.items():
-            rates = list(defender_scores.values())
+        for attacker_id, defender_cells in matrix.items():
+            success_by_defender = {}
+            rates = []
+            for defender_id, cell in defender_cells.items():
+                rate, n = cell["success_rate"] or 0.0, cell["total"]
+                lo, hi = self._wilson_interval(rate, n)
+                success_by_defender[defender_id] = {
+                    "success_rate": round(rate, 3),
+                    "n":            n,
+                    "ci95":         [round(lo, 3), round(hi, 3)],
+                }
+                rates.append(rate)
+
             if len(rates) < 2:
                 transferability[attacker_id] = {
-                    "success_by_defender": defender_scores,
-                    "mean_success_rate":   rates[0] if rates else 0.0,
+                    "success_by_defender": success_by_defender,
+                    "mean_success_rate":   round(rates[0], 3) if rates else 0.0,
                     "transferability_score": 0.0,
                     "interpretation": "insufficient data",
                 }
@@ -122,7 +144,7 @@ class TransferabilityExperiment:
                 "defender-specific"
             )
             transferability[attacker_id] = {
-                "success_by_defender":  defender_scores,
+                "success_by_defender":  success_by_defender,
                 "mean_success_rate":    round(mean, 3),
                 "transferability_score": round(1.0 - stdev, 3),  # higher = more transferable
                 "stdev":                round(stdev, 3),
