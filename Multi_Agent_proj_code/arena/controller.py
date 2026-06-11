@@ -289,13 +289,22 @@ class ArenaController:
 
             for attacker in attacker_list:
                 for defender in defender_list:
+                    used_seeds: set[str] = set()
                     for i in range(rounds_per_pair):
                         # Tournament rounds are independent single-turn games:
                         # adaptive attackers must not carry history across seeds.
                         reset = getattr(attacker, "reset", None)
                         if callable(reset):
                             reset()
-                        seed = self.seed_bank.sample(category=category_filter)[0]
+                        sampled = self.seed_bank.sample(
+                            category=category_filter, exclude_ids=used_seeds
+                        )
+                        if not sampled:
+                            # All seeds exhausted for this pair — reset exclusion and resample
+                            used_seeds.clear()
+                            sampled = self.seed_bank.sample(category=category_filter)
+                        seed = sampled[0]
+                        used_seeds.add(seed["id"])
                         result = self.run_round(attacker, defender, seed)
                         results.append(result)
 
